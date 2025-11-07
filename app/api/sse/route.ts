@@ -11,7 +11,7 @@ export async function GET(request: NextRequest) {
   const stream = new ReadableStream({
     start(controller) {
       const clientId = crypto.randomUUID();
-      
+
       clients.set(clientId, {
         id: clientId,
         controller,
@@ -40,7 +40,7 @@ export async function GET(request: NextRequest) {
 export function broadcastEvent(data: string) {
   const encoder = new TextEncoder();
   const message = `data: ${data}\n\n`;
-  
+
   clients.forEach((client) => {
     try {
       client.controller.enqueue(encoder.encode(message));
