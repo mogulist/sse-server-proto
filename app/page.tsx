@@ -1,114 +1,76 @@
 'use client';
 
-import { useEffect, useState, useRef } from 'react';
+import { useState } from 'react';
 
-type EventData = {
-  type: string;
-  timestamp?: string;
-  id?: string;
+type PublishResponse = {
+  success: boolean;
+  timestamp: string;
 };
 
 export default function Home() {
-  const [events, setEvents] = useState<EventData[]>([]);
-  const [isConnected, setIsConnected] = useState(false);
-  const eventSourceRef = useRef<EventSource | null>(null);
-
-  useEffect(() => {
-    const eventSource = new EventSource('/api/sse');
-    eventSourceRef.current = eventSource;
-
-    eventSource.onopen = () => {
-      setIsConnected(true);
-    };
-
-    eventSource.onmessage = (event) => {
-      try {
-        const data: EventData = JSON.parse(event.data);
-        setEvents((prev) => [data, ...prev]);
-      } catch (error) {
-        console.error('Failed to parse event data:', error);
-      }
-    };
-
-    eventSource.onerror = () => {
-      setIsConnected(false);
-    };
-
-    return () => {
-      eventSource.close();
-    };
-  }, []);
+  const [isLoading, setIsLoading] = useState(false);
+  const [lastSentTime, setLastSentTime] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
 
   const handlePublish = async () => {
+    setIsLoading(true);
+    setError(null);
+
     try {
-      await fetch('/api/publish', {
+      const response = await fetch('/api/publish', {
         method: 'POST',
       });
+
+      if (!response.ok) {
+        throw new Error('Failed to send event');
+      }
+
+      const data: PublishResponse = await response.json();
+      setLastSentTime(data.timestamp);
     } catch (error) {
+      setError('이벤트 전송에 실패했습니다.');
       console.error('Failed to publish event:', error);
+    } finally {
+      setIsLoading(false);
     }
   };
 
   return (
     <div className="flex min-h-screen items-center justify-center bg-zinc-50 font-sans dark:bg-black">
-      <main className="flex min-h-screen w-full max-w-3xl flex-col items-center justify-between py-32 px-16 bg-white dark:bg-black sm:items-start">
-        <div className="flex flex-col items-center gap-6 text-center sm:items-start sm:text-left w-full">
-          <h1 className="max-w-xs text-3xl font-semibold leading-10 tracking-tight text-black dark:text-zinc-50">
+      <main className="flex min-h-screen w-full max-w-3xl flex-col items-center justify-center py-32 px-16 bg-white dark:bg-black">
+        <div className="flex flex-col items-center gap-8 text-center w-full">
+          <h1 className="text-3xl font-semibold leading-10 tracking-tight text-black dark:text-zinc-50">
             SSE Server
           </h1>
 
-          <div className="flex items-center gap-2">
-            <div
-              className={`h-3 w-3 rounded-full ${isConnected ? 'bg-green-500' : 'bg-red-500'
-                }`}
-            />
-            <span className="text-sm text-zinc-600 dark:text-zinc-400">
-              {isConnected ? 'Connected' : 'Disconnected'}
-            </span>
-          </div>
+          <p className="text-lg text-zinc-600 dark:text-zinc-400 max-w-md">
+            버튼을 클릭하면 현재 시간을 SSE로 구독 중인 클라이언트들에게 전송합니다.
+          </p>
 
           <button
             onClick={handlePublish}
-            className="flex h-12 w-full items-center justify-center rounded-full bg-foreground px-5 text-background transition-colors hover:bg-[#383838] dark:hover:bg-[#ccc] md:w-[200px]"
+            disabled={isLoading}
+            className="flex h-12 w-full items-center justify-center rounded-full bg-foreground px-5 text-background transition-colors hover:bg-[#383838] dark:hover:bg-[#ccc] disabled:opacity-50 disabled:cursor-not-allowed md:w-[200px]"
           >
-            Send Current Time
+            {isLoading ? '전송 중...' : 'Send Current Time'}
           </button>
 
-          <div className="w-full mt-8">
-            <h2 className="text-xl font-semibold mb-4 text-black dark:text-zinc-50">
-              Received Events
-            </h2>
-            <div className="space-y-2 max-h-96 overflow-y-auto">
-              {events.length === 0 ? (
-                <p className="text-zinc-600 dark:text-zinc-400">
-                  No events received yet
-                </p>
-              ) : (
-                events.map((event, index) => (
-                  <div
-                    key={index}
-                    className="p-4 rounded-lg bg-zinc-100 dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800"
-                  >
-                    {event.type === 'time' && event.timestamp && (
-                      <div>
-                        <span className="text-sm text-zinc-500 dark:text-zinc-400">
-                          Time:
-                        </span>
-                        <span className="ml-2 font-mono text-black dark:text-zinc-50">
-                          {event.timestamp}
-                        </span>
-                      </div>
-                    )}
-                    {event.type === 'connected' && (
-                      <div className="text-sm text-zinc-600 dark:text-zinc-400">
-                        Connected (ID: {event.id})
-                      </div>
-                    )}
-                  </div>
-                ))
-              )}
+          {error && (
+            <div className="p-4 rounded-lg bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 w-full max-w-md">
+              <p className="text-sm text-red-600 dark:text-red-400">{error}</p>
             </div>
-          </div>
+          )}
+
+          {lastSentTime && !error && (
+            <div className="p-4 rounded-lg bg-green-50 dark:bg-green-900/20 border border-green-200 dark:border-green-800 w-full max-w-md">
+              <p className="text-sm text-green-600 dark:text-green-400 mb-2">
+                이벤트가 성공적으로 전송되었습니다!
+              </p>
+              <p className="text-base font-mono text-green-700 dark:text-green-300">
+                {lastSentTime}
+              </p>
+            </div>
+          )}
         </div>
       </main>
     </div>
