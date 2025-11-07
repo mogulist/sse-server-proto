@@ -37,23 +37,41 @@ export async function GET(request: NextRequest) {
   const origin = request.headers.get('origin');
   const corsHeaders = getCorsHeaders(origin);
 
+  const encoder = new TextEncoder();
+  const clientId = crypto.randomUUID();
+
   const stream = new ReadableStream({
     start(controller) {
-      const clientId = crypto.randomUUID();
-
       clients.set(clientId, {
         id: clientId,
         controller,
       });
 
-      const encoder = new TextEncoder();
-      const data = `data: ${JSON.stringify({ type: 'connected', id: clientId })}\n\n`;
-      controller.enqueue(encoder.encode(data));
+      const connectedData = `data: ${JSON.stringify({ type: 'connected', id: clientId })}\n\n`;
+      controller.enqueue(encoder.encode(connectedData));
+
+      const heartbeatInterval = setInterval(() => {
+        try {
+          const heartbeat = `: heartbeat\n\n`;
+          controller.enqueue(encoder.encode(heartbeat));
+        } catch {
+          clearInterval(heartbeatInterval);
+          clients.delete(clientId);
+        }
+      }, 30000);
 
       request.signal.addEventListener('abort', () => {
+        clearInterval(heartbeatInterval);
         clients.delete(clientId);
-        controller.close();
+        try {
+          controller.close();
+        } catch {
+          // 이미 닫혔을 수 있음
+        }
       });
+    },
+    cancel() {
+      clients.delete(clientId);
     },
   });
 
@@ -63,6 +81,7 @@ export async function GET(request: NextRequest) {
       'Content-Type': 'text/event-stream',
       'Cache-Control': 'no-cache, no-transform',
       'Connection': 'keep-alive',
+      'X-Accel-Buffering': 'no',
     },
   });
 }
@@ -71,12 +90,18 @@ export function broadcastEvent(data: string) {
   const encoder = new TextEncoder();
   const message = `data: ${data}\n\n`;
 
-  clients.forEach((client) => {
+  const deadClients: string[] = [];
+
+  clients.forEach((client, clientId) => {
     try {
       client.controller.enqueue(encoder.encode(message));
     } catch {
-      clients.delete(client.id);
+      deadClients.push(clientId);
     }
+  });
+
+  deadClients.forEach((clientId) => {
+    clients.delete(clientId);
   });
 }
 
